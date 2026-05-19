@@ -1,0 +1,601 @@
+---
+title: "SOST20131/30031 — Assessment Part 2"
+author: "University ID: 11617469"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    number_sections: true
+    theme: flatly
+  pdf_document:
+    toc: true
+    number_sections: true
+---
+
+```{r setup, include=FALSE}
+# Global chunk options
+knitr::opts_chunk$set(
+  echo    = TRUE,     # Show code in output
+  message = FALSE,    # Suppress package load messages
+  warning = FALSE     # Suppress warnings
+)
+```
+
+```{r load-libraries, include=FALSE}
+library(ggplot2)
+library(GGally)
+library(dplyr)
+library(tidyr)
+library(car)
+library(performance)
+library(pscl)
+library(scales)
+```
+
+---
+
+# Question 1: Employee Performance Study
+
+## Research Question
+
+**Objective:** A multiple regression model comprising a response variable (Y) and explanatory variables (Xi) that explain behaviour of, or variability in Y.
+
+$$Y = \beta_0 + \beta_1 X_1 + \beta_2 X_2 + \ldots + \beta_k X_k + \varepsilon$$
+
+For general k explanatory variables, where $\varepsilon$ is the error term.
+
+> **"How do test scores and background characteristics explain variation in employee sales performance?"**
+
+---
+
+## Data Description and Exploratory Analysis
+
+```{r load-data}
+Q1_Data <- read.csv("Data/Employee_Performance.csv")
+Q2_Data <- read.csv("Data/Diabetes_Data.csv")
+```
+
+```{r q1-factor-conversion}
+# Converting categorical variables to factors for EDA
+Q1_Data$Type <- factor(Q1_Data$Type,
+                        levels = c(0, 1),
+                        labels = c("Science", "Business"))
+
+Q1_Data$Level <- factor(Q1_Data$Level,
+                         levels = c(1, 2, 3),
+                         labels = c("Degree", "Masters", "Doctorate"))
+
+Q1_Data$Expertise <- factor(Q1_Data$Expertise,
+                              levels = c(1, 2, 3, 4),
+                              labels = c("Logistics", "Promotion", "Sales", "Strategy"))
+```
+
+### Response Variable — Sales Performance
+
+```{r q1-summary-stats}
+# Summary statistics for response and measured variables
+data_measured <- Q1_Data[, c("Sales_Perf", "Creativity", "Mechanical", "Abstract", "Maths")]
+
+summary_stats <- data.frame(
+  Mean   = apply(data_measured, 2, mean),
+  Median = apply(data_measured, 2, median),
+  SD     = apply(data_measured, 2, sd),
+  Min    = apply(data_measured, 2, min),
+  Max    = apply(data_measured, 2, max)
+)
+round(summary_stats, 2)
+```
+
+*Table 1: Summary statistics for response and measured variables.*
+
+```{r q1-histogram, fig.cap="Figure 1: Distribution of sales performance score (red = mean, green = median)"}
+ggplot(Q1_Data, aes(x = Sales_Perf)) +
+  geom_histogram(
+    breaks   = seq(80, 130, by = 10),
+    fill     = "steelblue",
+    color    = "black",
+    alpha    = 0.8
+  ) +
+  geom_vline(xintercept = mean(Q1_Data$Sales_Perf),
+             color = "red", linetype = "dashed", linewidth = 1) +
+  geom_vline(xintercept = median(Q1_Data$Sales_Perf),
+             color = "darkgreen", linetype = "dotted", linewidth = 1) +
+  scale_x_continuous(breaks = seq(80, 130, by = 10), limits = c(80, 130)) +
+  labs(title = "Distribution of Sales Performance",
+       x = "Sales Performance", y = "Frequency") +
+  theme_minimal()
+```
+
+### Explanatory Variables
+
+The explanatory variables fall into two groups:
+
+**1. Measured** — test scores in Creativity, Mechanical, Abstract, and Maths.
+
+```{r q1-scatterplots, fig.cap="Figure 2: Scatter plots depicting the relationship between sales performance and test scores"}
+par(mfrow = c(2, 2))
+
+plot(Q1_Data$Creativity, Q1_Data$Sales_Perf,
+     xlab = "Creativity", ylab = "Sales Performance",
+     main = "Sales Performance vs Creativity")
+abline(lm(Sales_Perf ~ Creativity, data = Q1_Data), col = "red")
+
+plot(Q1_Data$Mechanical, Q1_Data$Sales_Perf,
+     xlab = "Mechanical", ylab = "Sales Performance",
+     main = "Sales Performance vs Mechanical")
+abline(lm(Sales_Perf ~ Mechanical, data = Q1_Data), col = "red")
+
+plot(Q1_Data$Abstract, Q1_Data$Sales_Perf,
+     xlab = "Abstract", ylab = "Sales Performance",
+     main = "Sales Performance vs Abstract")
+abline(lm(Sales_Perf ~ Abstract, data = Q1_Data), col = "red")
+
+plot(Q1_Data$Maths, Q1_Data$Sales_Perf,
+     xlab = "Maths", ylab = "Sales Performance",
+     main = "Sales Performance vs Maths")
+abline(lm(Sales_Perf ~ Maths, data = Q1_Data), col = "red")
+
+par(mfrow = c(1, 1))
+```
+
+Measured test scores show approximately symmetric distributions with no strong skewness, as evidenced by the close mean and median values in Table 1. Scatterplots (Figure 2) indicate positive relationships with `Sales_Perf`, strongest for Maths (r = 0.89), followed by Mechanical, and weaker for Creativity and Abstract. This aligns with expectations in a business analytics context where higher maths scores would be associated with higher sales performance.
+
+**2. Attribute** — categorical background variables:
+
+- **Type** (background): Science, Business
+- **Level** (education): Degree, Masters, Doctorate
+- **Expertise** (area): Logistics, Promotion, Sales, Strategy
+
+```{r q1-boxplots, fig.cap="Figure 3: Box plots showing differences in Sales Performance across categorical variables"}
+par(mfrow = c(1, 3))
+
+boxplot(Sales_Perf ~ Type, data = Q1_Data,
+        main = "Sales_Perf by Type",
+        xlab = "Type", ylab = "Sales Performance")
+
+boxplot(Sales_Perf ~ Level, data = Q1_Data,
+        main = "Sales_Perf by Level",
+        xlab = "Level", ylab = "Sales Performance")
+
+boxplot(Sales_Perf ~ Expertise, data = Q1_Data,
+        main = "Sales_Perf by Expertise",
+        xlab = "Expertise", ylab = "Sales Performance")
+
+par(mfrow = c(1, 1))
+```
+
+Boxplots (Figure 3) show minimal variation in background type, with substantial overlap in interquartile ranges. There is a clear upward trend across education levels (Degree → Masters → Doctorate) and substantial variation by expertise, with those specialising in Sales exhibiting the highest median `Sales_Perf`.
+
+### Examining Bivariate Relationships
+
+```{r q1-ggpairs, fig.cap="Figure 4: Exploratory plots examining relationships among all variables", fig.width=10, fig.height=10}
+GGally::ggpairs(
+  Q1_Data,
+  columns = c("Sales_Perf", "Creativity", "Mechanical",
+              "Abstract", "Maths", "Type", "Level", "Expertise")
+)
+```
+
+```{r q1-multicollinearity-check}
+# Checking for potential multicollinearity between Mechanical and Maths
+model_b <- lm(Mechanical ~ Maths, data = Q1_Data)
+summary(model_b)
+```
+
+```{r q1-maths-by-level, fig.cap="Mean Maths score by education level"}
+ggplot(Q1_Data, aes(x = Level, y = Maths)) +
+  stat_summary(fun = mean, geom = "bar", col = "black", fill = "steelblue") +
+  labs(title = "Mean Maths Score by Level",
+       x = "Level", y = "Mean Maths Score") +
+  theme_minimal()
+```
+
+```{r q1-maths-by-expertise, fig.cap="Mean Maths score by expertise area"}
+ggplot(Q1_Data, aes(x = Expertise, y = Maths)) +
+  stat_summary(fun = mean, geom = "bar", col = "black", fill = "steelblue") +
+  labs(title = "Mean Maths Score by Expertise",
+       x = "Expertise", y = "Mean Maths Score") +
+  theme_minimal()
+```
+
+Certain test scores (e.g., Mechanical with Creativity and Maths) show moderate positive correlations, suggesting potential multicollinearity when highly correlated predictors are entered together into the regression model. Additionally, Maths scores vary significantly across education level and expertise (Figure 4). This is formally assessed in the Model Selection and Refinement section.
+
+---
+
+## Initial Model Specification
+
+### The Model
+
+$$\text{Sales\_Perf} = \beta_0 + \beta_1 \cdot \text{Creativity} + \beta_2 \cdot \text{Mechanical} + \beta_3 \cdot \text{Abstract} + \beta_4 \cdot \text{Maths} + \beta_5 \cdot \text{Type} + \beta_6 \cdot \text{Level} + \beta_7 \cdot \text{Expertise} + \varepsilon$$
+
+It is important to consider all independent variables in the initial model to reduce the risk of omitted-variable bias, then move towards a simpler but effective model.
+
+```{r q1-model1}
+# Initial model with all candidate predictors
+# R automatically encodes categorical predictors as dummy variables
+# using a reference category
+model_1 <- lm(Sales_Perf ~ ., data = Q1_Data)
+summary(model_1)
+```
+
+```{r q1-fcrit}
+# Critical F-value at alpha = 0.05 with 10 and 37 df
+qf(0.95, 10, 37)
+```
+
+### Dummy Variables
+
+Categorical variables are encoded using dummy variables, with a reference level (coded 0) against which all other levels are compared.
+
+- **Type** reference: Science
+- **Level** reference: Degree
+- **Expertise** reference: Logistics
+
+The negative coefficients for some variables (Creativity, Abstract, ExpertisePromotion, ExpertiseStrategy) reflect overlapping explanatory power once other variables are controlled for, rather than a negative theoretical effect.
+
+---
+
+## Model Selection and Refinement
+
+### Overall Model Fit
+
+The initial model shows excellent fit (Adjusted R² = 97.53%), meaning it explains the vast majority of variability in `Sales_Perf`. Using the F-test, F~crit~ = 2.098 < F~calc~ = 186.7, confirming this is a valid model. The objective now is to identify the minimal adequate model.
+
+### Removing Non-Significant Predictors
+
+```{r q1-model2-remove-abstract}
+# Step 1: Remove Abstract (p = 0.85, large p-value, weak scatter relationship)
+model_2 <- lm(Sales_Perf ~ Creativity + Mechanical + Maths + Type + Expertise + Level,
+              data = Q1_Data)
+summary(model_2)
+```
+
+The change in Adjusted R² is marginal (<1%) and coefficient estimates remain stable, so Abstract is safely removed.
+
+```{r q1-model3-remove-creativity}
+# Step 2: Remove Creativity (least influential after Abstract)
+model_3 <- lm(Sales_Perf ~ Mechanical + Maths + Type + Expertise + Level,
+              data = Q1_Data)
+summary(model_3)
+round(summary(model_3)$coefficients, 2)
+```
+
+Again, the change in Adjusted R² is negligible and estimates remain stable.
+
+```{r q1-test-type}
+# Step 3: Test whether Type contributes significantly
+model_a <- lm(Sales_Perf ~ Mechanical + Maths + Expertise + Level, data = Q1_Data)
+summary(model_a)
+
+# Using anova() to compare models with and without Type
+anova(model_3, model_a)
+```
+
+The model comparison indicates that background Type contributes significantly to the response variable (F = 11.30, p < 0.01) and is retained. Education Level and Expertise are also retained as they contribute meaningfully when assessed jointly across all levels.
+
+### Multicollinearity
+
+```{r q1-vif}
+# Variance Inflation Factors for the refined model
+car::vif(model_3)
+```
+
+Variance Inflation Factors (VIF) for all predictors in the final model are below 5, indicating no problematic multicollinearity. Further variable removal is not needed: all remaining predictors are jointly significant, individually interpretable, and the model follows the principle of parsimony.
+
+---
+
+## Final Model and Interpretation
+
+### Final Regression Model
+
+$$\text{Sales\_Perf} = 83.03 + 0.65 \cdot \text{Mechanical} + 0.27 \cdot \text{Maths} + 1.61 \cdot \text{TypeBusiness} + 4.97 \cdot \text{LevelMasters} + 10.16 \cdot \text{LevelDoctorate} + 3.17 \cdot \text{ExpertiseSales} - 0.57 \cdot \text{ExpertisePromotion} - 1.22 \cdot \text{ExpertiseStrategy}$$
+
+Maths and Mechanical scores show positive associations, with Mechanical having a larger marginal effect. A Business background has a modest positive effect of 1.61 points on average compared to Science. Education level exhibits increasing returns relative to the Degree baseline. Relative to Logistics, Sales expertise is associated with higher performance, while Promotion and Strategy are slightly lower. The signs and magnitudes of coefficients are consistent with the skills and context required for sales performance.
+
+### Model Diagnostics
+
+```{r q1-diagnostics, fig.cap="Figure 5 & 6: Residuals vs Fitted Values and Normality of Residuals"}
+# Base R diagnostic plots
+plot(model_3, which = c(1, 2))
+```
+
+```{r q1-check-model, fig.cap="Extended model diagnostics"}
+# Extended performance-package diagnostics
+library(performance)
+check_model(model_3)
+```
+
+Points in the residuals vs fitted plot (Figure 5) are randomly spread around 0 with no clear pattern, supporting the linearity assumption. The Q-Q plot (Figure 6) confirms that residuals are approximately normally distributed.
+
+---
+
+## Prediction and Quality
+
+```{r q1-prediction}
+# Prediction for a specified employee profile
+values <- data.frame(
+  Mechanical = 18,
+  Maths      = 60,
+  Type       = factor("Science",   levels = levels(Q1_Data$Type)),
+  Level      = factor("Doctorate", levels = levels(Q1_Data$Level)),
+  Expertise  = factor("Promotion", levels = levels(Q1_Data$Expertise))
+)
+
+predval <- predict(model_3, newdata = values)
+round(predval, 2)
+```
+
+The predicted `Sales_Perf` for this profile is **120.41**, which is a reasonable prediction given the model's high Adjusted R² of 97.61%. However, it should be interpreted with caution for three reasons:
+
+1. The small sample size (n = 48) means estimates carry more uncertainty.
+2. A Maths score of 60 lies outside the observed sample range (max = 51), making this prediction less reliable.
+3. The residual standard error of 1.52 means individual-level predictions may vary due to unexplained variability.
+
+### Conclusion
+
+This analysis identified a multiple regression model explaining 97.61% of variance in sales performance. The final model retained five key predictors: Mechanical and Maths test scores, educational background, education level, and expertise area. It would benefit from a larger sample and validation on independent data to confirm its predictive performance.
+
+---
+
+# Question 2: Diabetes
+
+## Research Question
+
+**Objective:** To model the probability that an individual has diabetes or prediabetes based on a set of health indicators using a logistic regression model.
+
+$$\text{logit}(p) = \log\left(\frac{p}{1-p}\right) = \beta_0 + \beta_1 X_1 + \beta_2 X_2 + \ldots + \beta_k X_k$$
+
+Where $p = P(\text{Diabetes} = 1)$.
+
+- **Response variable:** 0 = no diabetes; 1 = diabetes or prediabetes
+- **Explanatory variables:** HighBP, HighChol, BMI, Smoker, Fruits, Age
+
+> **"How do various health indicators affect the probability of an individual having diabetes or prediabetes?"**
+
+---
+
+## Data Description and Exploration
+
+```{r q2-factor-conversion}
+# Converting binary variables to factors
+Q2_Data$HighBP   <- factor(Q2_Data$HighBP)
+Q2_Data$HighChol <- factor(Q2_Data$HighChol)
+Q2_Data$Smoker   <- factor(Q2_Data$Smoker)
+Q2_Data$Fruits   <- factor(Q2_Data$Fruits)
+Q2_Data$Diabetes <- factor(Q2_Data$Diabetes)
+```
+
+### Binary Variables
+
+```{r q2-binary-summary}
+# Counts and proportions for all binary variables
+lapply(
+  Q2_Data[c("HighBP", "HighChol", "Smoker", "Fruits", "Diabetes")],
+  function(x) {
+    cbind(
+      Count      = table(x),
+      Proportion = round(prop.table(table(x)), 3)
+    )
+  }
+)
+```
+
+*Table 5: Counts and proportions for binary variables.*
+
+Overall, binary variables are reasonably balanced, with slightly higher proportions of individuals reporting high blood pressure (0.60) and fruit consumption (0.61).
+
+```{r q2-bar-highbp, fig.cap="Figure 8: Diabetes status by blood pressure"}
+ggplot(Q2_Data, aes(x = factor(HighBP), fill = factor(Diabetes))) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_manual(
+    values = c("0" = "#D9D9D9", "1" = "#8DA0CB"),
+    labels = c("No diabetes", "Prediabetes / Diabetes")
+  ) +
+  labs(x = "High blood pressure status", y = "Proportion",
+       fill = "Diabetes status",
+       title = "Diabetes status by High Blood Pressure") +
+  scale_x_discrete(labels = c("0" = "No High Blood Pressure",
+                               "1" = "High Blood Pressure")) +
+  theme_minimal(base_size = 10)
+```
+
+```{r q2-bar-highchol, fig.cap="Figure 10: Diabetes status by cholesterol"}
+ggplot(Q2_Data, aes(x = factor(HighChol), fill = Diabetes)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  labs(x = "High Cholesterol", y = "Proportion",
+       fill = "Diabetes",
+       title = "Diabetes status by High Cholesterol") +
+  scale_x_discrete(labels = c("0" = "No High Cholesterol",
+                               "1" = "High Cholesterol")) +
+  theme_minimal()
+```
+
+```{r q2-bar-smoker, fig.cap="Figure 7: Diabetes status by smoker"}
+ggplot(Q2_Data, aes(x = factor(Smoker), fill = Diabetes)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  labs(x = "Smoker", y = "Proportion",
+       fill = "Diabetes",
+       title = "Diabetes status by Smoker") +
+  scale_x_discrete(labels = c("0" = "Non-Smoker", "1" = "Smoker")) +
+  theme_minimal()
+```
+
+```{r q2-bar-fruits, fig.cap="Figure 9: Diabetes status by fruit consumption"}
+ggplot(Q2_Data, aes(x = factor(Fruits), fill = Diabetes)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  labs(x = "Fruits", y = "Proportion",
+       fill = "Diabetes",
+       title = "Diabetes status by Fruit Consumption") +
+  scale_x_discrete(labels = c("0" = "No", "1" = "Yes")) +
+  theme_minimal()
+```
+
+Higher proportions of diabetes or prediabetes are observed among individuals with high blood pressure and high cholesterol (Figures 7--10).
+
+### Measured Variables
+
+```{r q2-bmi-age-summary}
+# Summary statistics for BMI and Age by diabetes status
+Q2_Data %>%
+  group_by(Diabetes) %>%
+  summarise(
+    mean_BMI   = mean(BMI),   median_BMI = median(BMI),
+    sd_BMI     = sd(BMI),     min_BMI    = min(BMI),    max_BMI = max(BMI),
+    mean_Age   = mean(Age),   median_Age = median(Age),
+    sd_Age     = sd(Age),     min_Age    = min(Age),    max_Age = max(Age)
+  )
+```
+
+*Table 6: Summary statistics for BMI and Age by diabetes status.*
+
+```{r q2-bmi-age-boxplot, fig.cap="Figure 11: BMI and Age by diabetes status"}
+Q2_long <- Q2_Data %>%
+  pivot_longer(cols = c(BMI, Age), names_to = "Variable", values_to = "Value")
+
+ggplot(Q2_long, aes(x = factor(Diabetes), y = Value, fill = Variable)) +
+  geom_boxplot(colour = "grey30", alpha = 0.8) +
+  facet_wrap(~ Variable, scales = "free_y") +
+  labs(x = "Diabetes status", y = "Value",
+       title = "BMI and Age by Diabetes Status") +
+  scale_x_discrete(labels = c("0" = "No Diabetes",
+                               "1" = "Prediabetes / Diabetes")) +
+  scale_fill_manual(values = c("BMI" = "#AED581", "Age" = "#90CAF9")) +
+  theme_minimal(base_size = 14)
+```
+
+Individuals with diabetes exhibit higher mean and median BMI and Age (Table 6), with BMI showing the larger difference between groups (Figure 11). These patterns are consistent with established risk factors for diabetes. Greater variability is also observed among individuals with diabetes.
+
+---
+
+## Initial Model Specification
+
+$$\text{logit}(p) = \beta_0 + \beta_1 \cdot \text{HighBP} + \beta_2 \cdot \text{HighChol} + \beta_3 \cdot \text{BMI} + \beta_4 \cdot \text{Smoker} + \beta_5 \cdot \text{Fruits} + \beta_6 \cdot \text{Age}$$
+
+A logistic regression model is used because the response variable is binary, and this model directly estimates the log-odds, ensuring predicted probabilities lie between 0 and 1.
+
+```{r q2-model-initial}
+model <- glm(Diabetes ~ ., data = Q2_Data, family = binomial(logit))
+summary(model)
+```
+
+At a significance level of 5%, Wald statistics imply that HighBP and Fruits are not individually significant. A collective assessment follows in the next section.
+
+---
+
+## Model Selection and Refinement
+
+### G-Statistic: Overall Significance
+
+Using the G-statistic, we assess whether the variables collectively contribute to explaining the logit. The G-statistic is calculated as the difference in deviances between the null model and the fitted model.
+
+Hypotheses:
+
+- $H_0: \beta_i = 0$ for all $i$
+- $H_1:$ at least one $\beta_i \neq 0$
+
+```{r q2-g-statistic}
+G_calc <- model$null.deviance - model$deviance
+Gdf    <- model$df.null - model$df.residual
+
+G_calc
+qchisq(0.95, df = Gdf)
+1 - pchisq(G_calc, Gdf)
+```
+
+Since G~calc~ = 47.23 > G~crit~ = 12.59, we reject H₀ (p-value < 0.05). The variables collectively have explanatory power.
+
+### Removing Fruits
+
+```{r q2-remove-fruits}
+# Remove Fruits: largest p-value and z-value < 2
+model_2.1 <- update(model, ~ . - Fruits, data = Q2_Data)
+summary(model_2.1)
+```
+
+The AIC decreases from 174.69 to 172.79 (lower AIC indicates a more parsimonious model), confirming Fruits can be safely removed.
+
+### Likelihood Ratio Test for Remaining Predictors
+
+```{r q2-lrt}
+anova(model_2.1, test = "Chisq")
+```
+
+From the likelihood ratio test (LRT), removing HighBP significantly worsens the model, so it is retained despite its marginal Wald p-value. Smoker has a p-value of 0.090, suggesting it does not meet the 5% threshold.
+
+### Testing Smoker Retention
+
+```{r q2-compare-smoker}
+# Compare model with and without Smoker
+model_2.2 <- glm(Diabetes ~ HighBP + HighChol + BMI + Age,
+                  family = binomial(logit), data = Q2_Data)
+
+anova(model_2.1, model_2.2, test = "Chisq")
+```
+
+Removing Smoker increases residual deviance by 3.54 on 1 df (p = 0.060), indicating marginal deterioration. Although not significant at 5%, Smoker is retained due to strong theoretical and empirical evidence that smoking increases the risk of diabetes.
+
+---
+
+## Final Model and Interpretation
+
+$$\text{logit}(p) = \beta_0 + \beta_1 \cdot \text{HighBP} + \beta_2 \cdot \text{HighChol} + \beta_3 \cdot \text{BMI} + \beta_4 \cdot \text{Smoker} + \beta_5 \cdot \text{Age}$$
+
+```{r q2-final-model}
+summary(model_2.1)
+```
+
+```{r q2-odds-ratios}
+# Exponentiating coefficients to obtain odds ratios
+round(exp(coef(model_2.1)), 2)
+```
+
+High cholesterol is associated with 2.24 times higher odds of diabetes (a 124% increase). High blood pressure is also associated with increased odds relative to those without it. Each one-unit increase in BMI increases the odds by approximately 16%, and each additional year of age increases the odds of diabetes by 6%, holding other variables constant.
+
+---
+
+## Accuracy and Model Performance
+
+```{r q2-predicted-probs}
+# Predicted probabilities from the final model
+predprob <- predict(model_2.1, type = "response")
+head(predprob)
+summary(predprob)
+```
+
+```{r q2-confusion-matrix}
+# Classification rule: p >= 0.5 classified as diabetes/prediabetes
+pred.diabetes <- ifelse(predprob >= 0.5, 1, 0)
+actual        <- as.integer(as.character(Q2_Data$Diabetes))
+
+confusion_matrix <- table(Predicted = pred.diabetes, Actual = actual)
+confusion_matrix
+```
+
+*Table 10: Confusion matrix.*
+
+```{r q2-accuracy-metrics}
+# Performance metrics
+TP <- confusion_matrix["1", "1"]
+TN <- confusion_matrix["0", "0"]
+FP <- confusion_matrix["1", "0"]
+FN <- confusion_matrix["0", "1"]
+
+accuracy    <- sum(diag(confusion_matrix)) / sum(confusion_matrix)
+sensitivity <- TP / (TP + FN)
+specificity <- TN / (TN + FP)
+
+round(c(accuracy = accuracy, sensitivity = sensitivity, specificity = specificity), 3)
+```
+
+The model achieved an overall accuracy of 70%, which represents an improvement over the baseline accuracy of 51% (if predicting the majority class throughout). Sensitivity of 68.4% means the model correctly identifies individuals with diabetes or prediabetes in that proportion of cases. Specificity of 71.6% indicates slightly stronger performance in identifying non-diabetic individuals. The confusion matrix shows slightly more false negatives than false positives, meaning some individuals with diabetes are misclassified as non-diabetic.
+
+**Note on overfitting:** Model performance is evaluated on the same dataset used for estimation, as the sample is small (n = 150). The reported accuracy may therefore be optimistic, and predictive performance on new data could be lower.
+
+### Conclusion
+
+The logistic regression analysis identified five significant health indicators associated with diabetes or prediabetes risk: high blood pressure, high cholesterol, BMI, smoking, and age. The model achieved 70% classification accuracy. However, the small sample limits generalisability, and in-sample evaluation may overestimate true predictive performance.
